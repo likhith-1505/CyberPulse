@@ -21,9 +21,9 @@ export function FlowAnalysis() {
         case "packets":
           return b.packetCount - a.packetCount;
         case "bytes":
-          return b.totalBytes - a.totalBytes;
+          return b.bytesTransferred - a.bytesTransferred;
         case "duration":
-          return (b.endTime - b.startTime) - (a.endTime - a.startTime);
+          return b.duration - a.duration;
         default:
           return 0;
       }
@@ -33,8 +33,8 @@ export function FlowAnalysis() {
 
   const getFlowStatus = (flow: PacketFlow) => {
     if (flow.protocol === "TCP") {
-      if (flow.flags?.includes("RST")) return { icon: "⚠️", label: "Reset", color: "text-red-400" };
-      if (flow.flags?.includes("FIN")) return { icon: "✓", label: "Closed", color: "text-green-400" };
+      if (flow.status === "malicious") return { icon: "⚠️", label: "Malicious", color: "text-red-400" };
+      if (flow.status === "suspicious") return { icon: "⚡", label: "Suspicious", color: "text-yellow-400" };
       return { icon: "🔗", label: "Established", color: "text-blue-400" };
     }
     return { icon: "📦", label: "UDP Flow", color: "text-cyan-400" };
@@ -122,7 +122,7 @@ export function FlowAnalysis() {
                     <span className="px-1.5 py-0.5 bg-slate-700/50 rounded">
                       {flow.protocol}
                     </span>
-                    <span>Port {flow.srcPort} → {flow.dstPort}</span>
+                    <span>Port {flow.dstPort || "?"}</span>
                   </div>
                 </div>
 
@@ -136,7 +136,7 @@ export function FlowAnalysis() {
                   </div>
                   <div className="text-right">
                     <div className="text-xs font-semibold text-slate-300">
-                      {formatBytes(flow.totalBytes)}
+                      {formatBytes(flow.bytesTransferred)}
                     </div>
                     <div className="text-xs text-slate-500">data</div>
                   </div>
@@ -151,25 +151,25 @@ export function FlowAnalysis() {
                     <div className="bg-slate-800/30 rounded p-2">
                       <div className="text-xs text-slate-500">Duration</div>
                       <div className="text-sm font-semibold text-slate-300">
-                        {formatDuration(flow.endTime - flow.startTime)}
+                        {formatDuration(flow.duration)}
                       </div>
                     </div>
                     <div className="bg-slate-800/30 rounded p-2">
                       <div className="text-xs text-slate-500">Avg Speed</div>
                       <div className="text-sm font-semibold text-slate-300">
-                        {formatBytes(Math.round(flow.totalBytes / ((flow.endTime - flow.startTime) / 1000)))}/s
+                        {formatBytes(Math.round(flow.bytesTransferred / (flow.duration / 1000)))}/s
                       </div>
                     </div>
                     <div className="bg-slate-800/30 rounded p-2">
-                      <div className="text-xs text-slate-500">Start Time</div>
+                      <div className="text-xs text-slate-500">First Seen</div>
                       <div className="text-xs font-mono text-slate-400">
-                        {new Date(flow.startTime).toLocaleTimeString()}
+                        {flow.firstSeen}
                       </div>
                     </div>
                     <div className="bg-slate-800/30 rounded p-2">
-                      <div className="text-xs text-slate-500">End Time</div>
+                      <div className="text-xs text-slate-500">Last Seen</div>
                       <div className="text-xs font-mono text-slate-400">
-                        {new Date(flow.endTime).toLocaleTimeString()}
+                        {flow.lastSeen}
                       </div>
                     </div>
                   </div>
@@ -187,10 +187,10 @@ export function FlowAnalysis() {
                         <div className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
                         <span>Normal protocol behavior</span>
                       </div>
-                      {flow.flags?.includes("RST") && (
-                        <div className="flex items-center gap-2 text-red-400">
+                      {flow.status !== "normal" && (
+                        <div className={`flex items-center gap-2 ${flow.status === "malicious" ? "text-red-400" : "text-yellow-400"}`}>
                           <AlertTriangle className="w-3 h-3 flex-shrink-0" />
-                          <span>Connection reset detected</span>
+                          <span>{flow.status === "malicious" ? "Malicious" : "Suspicious"} activity detected</span>
                         </div>
                       )}
                     </div>

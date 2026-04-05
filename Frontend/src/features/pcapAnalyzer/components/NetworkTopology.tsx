@@ -49,7 +49,12 @@ export function NetworkTopology() {
 
   // Detect suspicious patterns
   const suspiciousPatterns = useMemo(() => {
-    const patterns = [];
+    const patterns: Array<{
+      type: string;
+      description: string;
+      severity: "high" | "medium" | "low";
+      ip: string;
+    }> = [];
 
     // Check for port scanning (many different ports from one source)
     const portsBySource: Record<string, Set<number>> = {};
@@ -57,7 +62,9 @@ export function NetworkTopology() {
       if (!portsBySource[f.srcIp]) {
         portsBySource[f.srcIp] = new Set();
       }
-      portsBySource[f.srcIp].add(f.dstPort);
+      if (f.dstPort) {
+        portsBySource[f.srcIp].add(f.dstPort);
+      }
     });
 
     Object.entries(portsBySource).forEach(([ip, ports]) => {
@@ -71,12 +78,19 @@ export function NetworkTopology() {
       }
     });
 
-    // Check for connection resets
+    // Check for suspicious flow status
     flows.forEach((f) => {
-      if (f.flags?.includes("RST")) {
+      if (f.status === "malicious") {
         patterns.push({
-          type: "Connection Reset",
-          description: `Reset connection between ${f.srcIp} and ${f.dstIp}:${f.dstPort}`,
+          type: "Malicious Flow",
+          description: `Detected malicious traffic between ${f.srcIp} and ${f.dstIp}:${f.dstPort}`,
+          severity: "high",
+          ip: f.srcIp,
+        });
+      } else if (f.status === "suspicious") {
+        patterns.push({
+          type: "Suspicious Flow",
+          description: `Detected suspicious traffic between ${f.srcIp} and ${f.dstIp}:${f.dstPort}`,
           severity: "medium",
           ip: f.srcIp,
         });

@@ -73,8 +73,8 @@ export function ProtocolAnalysisTabs() {
     () =>
       tlsRecords.filter(
         (t) =>
-          t.serverName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          t.issuer.toLowerCase().includes(searchTerm.toLowerCase())
+          (t.serverName?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
+          (t.issuer?.toLowerCase() || "").includes(searchTerm.toLowerCase())
       ),
     [tlsRecords, searchTerm]
   );
@@ -195,9 +195,9 @@ export function ProtocolAnalysisTabs() {
                     </span>
                     <span
                       className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                        parseInt(http.statusCode || "200") < 300
+                        parseInt(String(http.statusCode || "200")) < 300
                           ? "bg-green-500/20 text-green-300"
-                          : parseInt(http.statusCode || "200") < 400
+                          : parseInt(String(http.statusCode || "200")) < 400
                           ? "bg-yellow-500/20 text-yellow-300"
                           : "bg-red-500/20 text-red-300"
                       }`}
@@ -267,13 +267,13 @@ export function ProtocolAnalysisTabs() {
                       <div>
                         <div className="text-slate-500 mb-1">Valid From</div>
                         <div className="font-mono text-slate-300">
-                          {new Date(tls.validFrom).toLocaleDateString()}
+                          {tls.validFrom ? new Date(tls.validFrom).toLocaleDateString() : "N/A"}
                         </div>
                       </div>
                       <div>
                         <div className="text-slate-500 mb-1">Valid Until</div>
                         <div className="font-mono text-slate-300">
-                          {new Date(tls.validUntil).toLocaleDateString()}
+                          {tls.validUntil ? new Date(tls.validUntil).toLocaleDateString() : "N/A"}
                         </div>
                       </div>
                     </div>

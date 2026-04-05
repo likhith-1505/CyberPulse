@@ -50,8 +50,13 @@ export interface Alert {
   description: string;
   sourceIp: string;
   destIp?: string;
-  timestamp: string;
+  timestamp: number;
   packetIds: string[];
+  details?: {
+    srcIp?: string;
+    dstIp?: string;
+    port?: number;
+  };
 }
 
 export interface ProtocolStats {
@@ -62,31 +67,39 @@ export interface ProtocolStats {
 }
 
 export interface DNSRecord {
-  timestamp: string;
+  timestamp: number;
   query: string;
-  queryType: string;
+  queryType?: string;
+  type?: string;
+  answer: string;
   response?: string;
-  responseCode: string;
-  suspicious: boolean;
+  responseCode?: string;
+  suspicious?: boolean;
 }
 
 export interface HTTPRecord {
-  timestamp: string;
-  srcIp: string;
+  timestamp: number;
+  srcIp?: string;
   method: string;
   url: string;
-  statusCode?: number;
+  host?: string;
+  statusCode?: string | number;
   userAgent?: string;
-  suspicious: boolean;
+  suspicious?: boolean;
 }
 
 export interface TLSRecord {
-  timestamp: string;
-  srcIp: string;
+  timestamp: number;
+  srcIp?: string;
   sni?: string;
+  serverName?: string;
   certificate?: string;
   issuer?: string;
-  suspicious: boolean;
+  subject?: string;
+  validFrom?: number;
+  validUntil?: number;
+  fingerprint?: string;
+  suspicious?: boolean;
 }
 
 export interface PcapAnalysisState {

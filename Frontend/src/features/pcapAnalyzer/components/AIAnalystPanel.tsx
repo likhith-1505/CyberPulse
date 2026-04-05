@@ -109,7 +109,7 @@ export function AIAnalystPanel() {
               .slice(0, 3)
               .map(
                 (t) =>
-                  `• ${t.serverName}\n  Issuer: ${t.issuer.substring(0, 50)}...`
+                  `• ${t.serverName || "Unknown"}\n  Issuer: ${(t.issuer || "Unknown").substring(0, 50)}...`
               )
               .join("\n\n")
           : "No TLS activity detected."
