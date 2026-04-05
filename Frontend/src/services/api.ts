@@ -65,28 +65,18 @@ export const api = {
     };
   },
 
-  async scanFile(_file: File): Promise<FileScanResult> {
-    await delay(3000);
-    const detected = Math.floor(Math.random() * 12);
-    const engines = [
-      "Kaspersky", "Malwarebytes", "CrowdStrike", "SentinelOne", "Sophos",
-      "ESET", "Bitdefender", "Avast", "McAfee", "Symantec", "Panda", "Avira",
-      "TrendMicro", "F-Secure", "Cylance",
-    ].map((name, i) => ({
-      name,
-      detected: i < detected,
-      result: i < detected ? "Trojan.GenericKD.46623585" : null,
-    }));
-    return {
-      sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      fileName: _file.name,
-      fileSize: `${(_file.size / 1024).toFixed(1)} KB`,
-      detectionRatio: { detected, total: engines.length },
-      engines,
-      firstSeen: "2025-11-02 14:32 UTC",
-      riskLevel: detected > 5 ? "dangerous" : detected > 0 ? "suspicious" : "clean",
-    };
-  },
+  async scanFile(file: File): Promise<FileScanResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch("http://localhost:8000/file/scan", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) throw new Error("File scan failed");
+  return res.json();
+},
 
   async analyzeUrl(url: string): Promise<UrlScanResult> {
   const res = await fetch("http://localhost:8000/url/analyze", {
