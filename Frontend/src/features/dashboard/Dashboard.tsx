@@ -1,92 +1,70 @@
 import { useEffect, useState } from "react";
 import {
   Shield, AlertTriangle, Activity, TrendingUp,
-  Clock, Eye, Wifi, FileText, Globe, Mail, ChevronRight,
+  Clock, Wifi, FileText, Globe, Mail, ChevronRight, Zap, AlertCircle, CheckCircle, Loader,
 } from "lucide-react";
 import { useStore } from "../../store/useStore";
 import { Card, StatCard, SectionTitle, RiskBadge, ProgressBar, AlertItem } from "../../components/ui";
-import { api, type RecentScan } from "../../services/api";
+import { useDashboardStore } from "../../store/dashboardStore";
+import { useDashboardData } from "../../hooks/useDashboardData";
+import {
+  formatRelativeTime,
+  formatNumber,
+  getRiskLevel,
+  getRiskColor,
+  formatLatency,
+  parseLatency,
+  formatUptime,
+  getGradientColor,
+} from "../../hooks/formatters";
 import type { Page } from "../../store/useStore";
 
-// ─── Simple SVG mini-chart ────────────────────────────────────────────────────
-function SparkLine({ data, color = "#a855f7" }: { data: number[]; color?: string }) {
-  const max = Math.max(...data);
-  const min = Math.min(...data);
-  const range = max - min || 1;
-  const w = 120;
-  const h = 40;
-  const pts = data
-    .map((v, i) => {
-      const x = (i / (data.length - 1)) * w;
-      const y = h - ((v - min) / range) * h;
-      return `${x},${y}`;
-    })
-    .join(" ");
+// ─── LOADING SKELETONS ─────────────────────────────────────────────────────────
+
+function SkeletonStat() {
   return (
-    <svg width={w} height={h} className="overflow-visible">
-      <polyline fill="none" stroke={color} strokeWidth="2" points={pts} strokeLinejoin="round" />
-    </svg>
+    <div className="p-4 rounded-lg bg-slate-900/50 border border-slate-800/30 animate-pulse">
+      <div className="h-3 bg-slate-700/50 rounded w-24 mb-2" />
+      <div className="h-8 bg-slate-700/50 rounded w-12 mb-2" />
+      <div className="h-2 bg-slate-700/50 rounded w-20" />
+    </div>
   );
 }
 
-// ─── Bar chart (horizontal) ───────────────────────────────────────────────────
-function BarChart({ data }: { data: { label: string; value: number; color: string }[] }) {
-  const max = Math.max(...data.map((d) => d.value));
+function SkeletonChart() {
   return (
     <div className="space-y-3">
-      {data.map((d) => (
-        <div key={d.label} className="flex items-center gap-3">
-          <span className="text-[11px] text-slate-400 w-16 text-right font-mono">{d.label}</span>
-          <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all duration-700"
-              style={{ width: `${(d.value / max) * 100}%`, background: d.color, boxShadow: `0 0 6px ${d.color}80` }}
-            />
-          </div>
-          <span className="text-[11px] text-slate-400 w-12 font-mono">{d.value.toLocaleString()}</span>
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="flex gap-3">
+          <div className="h-2 bg-slate-700/50 rounded flex-1 animate-pulse" />
         </div>
       ))}
     </div>
   );
 }
 
-// ─── Traffic timeline ─────────────────────────────────────────────────────────
-function TrafficChart({ scans }: { scans: RecentScan[] }) {
-  // Group scans by type and calculate distribution
-  const scansByType: Record<string, number> = {};
-  const threatsByType: Record<string, number> = {};
-  
-  scans.forEach(scan => {
-    const type = scan.type.toLowerCase();
-    scansByType[type] = (scansByType[type] || 0) + 1;
-    threatsByType[type] = (threatsByType[type] || 0) + scan.threat_count;
-  });
+// ─── REAL-TIME CHART COMPONENTS ────────────────────────────────────────────────
 
-  // Create synthetic timeline data from scan data
-  const types = Object.keys(scansByType).length > 0 ? Object.keys(scansByType) : ["pcap", "url", "file", "email"];
-  const trafficData = Array.from({ length: 12 }, (_, i) => ({
-    time: `${i * 2}h`,
-    packets: Math.floor((scansByType[types[i % types.length]] || 0) * (Math.random() * 2 + 1) * 1000),
-    threats: Math.floor((threatsByType[types[i % types.length]] || 0) * (Math.random() * 2 + 1) * 5),
-  }));
+function TimelineChart({ data }: { data: any[] }) {
+  if (!data || data.length === 0) return <SkeletonChart />;
 
-  const maxP = Math.max(...trafficData.map((d) => d.packets), 1);
-  const maxT = Math.max(...trafficData.map((d) => d.threats), 1);
+  const maxPackets = Math.max(...data.map((d) => d.packets), 1);
+  const maxThreats = Math.max(...data.map((d) => d.threats), 1);
   const w = 100;
   const h = 80;
 
-  const packetPts = trafficData
+  const packetPts = data
     .map((d, i) => {
-      const x = (i / (trafficData.length - 1)) * w;
-      const y = h - (d.packets / maxP) * h;
+      const x = (i / (data.length - 1)) * w;
+      const y = h - (d.packets / maxPackets) * h;
       return `${x},${y}`;
     })
     .join(" ");
 
-  const threatPts = trafficData
+  const threatPts = data
     .map((d, i) => {
-      const x = (i / (trafficData.length - 1)) * w;
-      const y = h - (d.threats / maxT) * h;
+      const x = (i / (data.length - 1)) * w;
+      const y = h - (d.threats / maxThreats) * h;
       return `${x},${y}`;
     })
     .join(" ");
@@ -105,213 +83,177 @@ function TrafficChart({ scans }: { scans: RecentScan[] }) {
         <polyline fill="none" stroke="#f87171" strokeWidth="0.5" strokeDasharray="2,1" points={threatPts} />
       </svg>
       <div className="flex items-center gap-4 mt-2 text-[10px] text-slate-500">
-        <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-purple-500 inline-block" /> Packets</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-red-400 inline-block border-dashed border" /> Threats</span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-0.5 bg-purple-500 inline-block" /> Network
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-0.5 bg-red-400 inline-block border-dashed border" /> Threats
+        </span>
       </div>
     </div>
   );
 }
 
+function ThreatChart({ data }: { data: any }) {
+  if (!data) return <SkeletonChart />;
 
-// ─── Threat distribution ──────────────────────────────────────────────────────
-function calculateThreatDistribution(scans: RecentScan[]): { label: string; value: number; color: string }[] {
-  const distribution: Record<string, number> = {
-    "Malware": 0,
-    "Phishing": 0,
-    "Suspicious": 0,
-    "Security": 0,
-    "Other": 0,
-  };
+  const categories = [
+    { label: "Malware", value: data.malware, color: "#f87171" },
+    { label: "Phishing", value: data.phishing, color: "#fb923c" },
+    { label: "Suspicious", value: data.suspicious, color: "#facc15" },
+    { label: "Safe", value: data.safe, color: "#22c55e" },
+  ];
 
-  scans.forEach(scan => {
-    const type = scan.type.toLowerCase();
-    if (type === "url" && scan.result.toLowerCase().includes("phish")) {
-      distribution["Phishing"] += scan.threat_count;
-    } else if (type === "file" && scan.threat_count > 0) {
-      distribution["Malware"] += scan.threat_count;
-    } else if (type === "email" && scan.threat_count > 0) {
-      distribution["Phishing"] += scan.threat_count;
-    } else if (type === "pcap" && scan.threat_count > 0) {
-      distribution["Security"] += scan.threat_count;
-    } else if (scan.threat_count > 0) {
-      distribution["Suspicious"] += scan.threat_count;
-    }
-  });
+  const max = Math.max(...categories.map((c) => c.value));
 
-  const colors = ["#f87171", "#fb923c", "#facc15", "#a855f7", "#60a5fa"];
-  return Object.entries(distribution)
-    .map(([label, value], i) => ({
-      label,
-      value: Math.max(value, 1), // Ensure at least 1 for display
-      color: colors[i % colors.length],
-    }))
-    .filter((_, i) => i < 5);
+  return (
+    <div className="space-y-3">
+      {categories.map((c) => (
+        <div key={c.label} className="flex items-center gap-3">
+          <span className="text-[11px] text-slate-400 w-16 text-right font-mono">{c.label}</span>
+          <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-700"
+              style={{ width: `${(c.value / (max || 1)) * 100}%`, background: c.color, boxShadow: `0 0 6px ${c.color}80` }}
+            />
+          </div>
+          <span className="text-[11px] text-slate-400 w-12 font-mono">{c.value.toLocaleString()}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-// ─── Alert generation ───────────────────────────────────────────────────────────
-function generateAlerts(scans: RecentScan[]): Array<{ severity: "high" | "medium" | "low"; title: string; sub: string }> {
-  const alerts: Array<{ severity: "high" | "medium" | "low"; title: string; sub: string }> = [];
-
-  scans.slice(0, 6).forEach(scan => {
-    const time = formatRelativeTime(scan.timestamp);
-    const type = scan.type.charAt(0).toUpperCase() + scan.type.slice(1);
-
-    if (scan.result.toLowerCase() === "dangerous" || scan.threat_count > 2) {
-      alerts.push({
-        severity: "high",
-        title: `${type} analysis - HIGH RISK detected`,
-        sub: `${scan.result} · ${time}`,
-      });
-    } else if (scan.result.toLowerCase() === "suspicious" || scan.threat_count === 1) {
-      alerts.push({
-        severity: "medium",
-        title: `${type} scan - Suspicious activity`,
-        sub: `${scan.result} · ${time}`,
-      });
-    } else {
-      alerts.push({
-        severity: "low",
-        title: `${type} analysis completed`,
-        sub: `${scan.result} · ${time}`,
-      });
-    }
-  });
-
-  // If no scans, return placeholder alerts
-  if (alerts.length === 0) {
-    return [
-      {
-        severity: "low",
-        title: "System ready for analysis",
-        sub: "No recent security events · Run a scan to get started",
-      },
-    ];
-  }
-
-  return alerts.slice(0, 6);
-}
-function formatRelativeTime(timestamp: string): string {
-  const now = new Date();
-  const scanTime = new Date(timestamp);
-  const diffMs = now.getTime() - scanTime.getTime();
-  const diffSecs = Math.floor(diffMs / 1000);
-  
-  if (diffSecs < 60) return "just now";
-  if (diffSecs < 3600) return `${Math.floor(diffSecs / 60)}m ago`;
-  if (diffSecs < 86400) return `${Math.floor(diffSecs / 3600)}h ago`;
-  return `${Math.floor(diffSecs / 86400)}d ago`;
-}
-
-function getScanIcon(type: string) {
-  switch (type.toLowerCase()) {
-    case "pcap": return Wifi;
-    case "file": return FileText;
-    case "url": return Globe;
-    case "email": return Mail;
-    default: return FileText;
-  }
-}
-
-function getRiskLevel(result: string): "safe" | "suspicious" | "dangerous" {
-  const lower = result.toLowerCase();
-  if (lower === "clean" || lower === "safe") return "safe";
-  if (lower === "suspicious") return "suspicious";
-  return "dangerous";
-}
+// ─── MAIN DASHBOARD COMPONENT ──────────────────────────────────────────────────
 
 export function Dashboard() {
-  const { totalScans, threatsDetected, setPage, setStats } = useStore();
-  const [recentScans, setRecentScans] = useState<RecentScan[]>([]);
-  const riskScore = totalScans > 0 ? Math.round((threatsDetected / totalScans) * 100) : 0;
+  const { setPage } = useStore();
+  const store = useDashboardStore();
+  const { refetch } = useDashboardData({ poll: 5000 });
+  const [clock, setClock] = useState(new Date());
 
-  // Fetch dashboard stats and recent activity from backend
+  // Real-time clock that syncs with server
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [stats, activity] = await Promise.all([
-          api.getDashboardStats(),
-          api.getRecentActivity(),
-        ]);
-        setStats(stats.total_scans, stats.threats_detected);
-        setRecentScans(activity);
-      } catch (error) {
-        console.error("Failed to fetch dashboard data:", error);
-      }
-    };
+    const timer = setInterval(() => setClock(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
-    // Fetch immediately and then every 5 seconds
-    fetchData();
-    const interval = setInterval(fetchData, 5000);
+  // Manually refetch all data (user can trigger)
+  const handleRefresh = async () => {
+    await refetch.all();
+  };
 
-    return () => clearInterval(interval);
-  }, [setStats]);
-
-  // Calculate dynamic data from scans
-  const threatDist = calculateThreatDistribution(recentScans);
-  const alerts = generateAlerts(recentScans);
-  const lastUpdateTime = recentScans.length > 0 ? formatRelativeTime(recentScans[0].timestamp) : "never";
+  const { summary, timeline, threats, activities, alerts, health, loading, errors } = store;
+  const activeThreats = store.getActiveThreatCount();
+  const criticalAlerts = store.getCriticalAlertCount();
+  const isLoading = store.isAnythingLoading();
+  const lastUpdate = store.getLastUpdateTime();
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
+      {/* Header with Live Indicator & Refresh */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-100 tracking-wide">Security Overview</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Real-time threat intelligence · Last updated {lastUpdateTime}</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Real-time threat intelligence · Last updated {lastUpdate ? formatRelativeTime(lastUpdate.toISOString()) : "never"}
+            {isLoading && <span className="ml-2 inline-flex items-center gap-1"><Loader size={10} className="animate-spin" /> Updating...</span>}
+          </p>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-900/20 border border-emerald-800/30">
-          <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse shadow-[0_0_4px_rgba(52,211,153,0.8)]" />
-          <span className="text-[11px] text-emerald-400 font-bold uppercase tracking-widest">Live</span>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleRefresh}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-900/20 border border-blue-800/30 hover:border-blue-700/40 transition-colors disabled:opacity-50"
+          >
+            <Zap size={13} className="text-blue-400" />
+            <span className="text-[11px] text-blue-400 font-medium">Refresh</span>
+          </button>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-900/20 border border-emerald-800/30">
+            <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse shadow-[0_0_4px_rgba(52,211,153,0.8)]" />
+            <span className="text-[11px] text-emerald-400 font-bold uppercase tracking-widest">Live</span>
+          </div>
         </div>
       </div>
 
-      {/* Stat cards */}
+      {/* Stat cards with real-time data */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard
-          title="Total Scans"
-          value={totalScans.toLocaleString()}
-          icon={Shield}
-          color="purple"
-          trend="↑ 12% this week"
-          sub="All time"
-        />
-        <StatCard
-          title="Threats Detected"
-          value={threatsDetected}
-          icon={AlertTriangle}
-          color="red"
-          trend="↑ 3 today"
-          sub="Requires attention"
-        />
-        <StatCard
-          title="Risk Score"
-          value={`${riskScore}%`}
-          icon={Activity}
-          color={riskScore > 50 ? "red" : riskScore > 20 ? "amber" : "emerald"}
-          sub="Platform-wide"
-        />
-        <StatCard
-          title="Avg Response"
-          value="1.8s"
-          icon={TrendingUp}
-          color="cyan"
-          trend="↓ 0.3s improvement"
-          sub="Last 100 scans"
-        />
+        {loading.summary ? (
+          <>
+            <SkeletonStat />
+            <SkeletonStat />
+            <SkeletonStat />
+            <SkeletonStat />
+          </>
+        ) : summary ? (
+          <>
+            <StatCard
+              title="Total Scans"
+              value={formatNumber(summary.total_scans)}
+              icon={Shield}
+              color="purple"
+              trend={`↑ ${summary.total_scans} all-time`}
+              sub="Real-time count"
+            />
+            <StatCard
+              title="Threats Detected"
+              value={formatNumber(summary.threats_detected)}
+              icon={AlertTriangle}
+              color="red"
+              trend={`${activeThreats} active`}
+              sub="Requires attention"
+            />
+            <StatCard
+              title="Risk Score"
+              value={`${summary.risk_score}%`}
+              icon={Activity}
+              color={summary.risk_score >= 60 ? "red" : summary.risk_score >= 40 ? "amber" : "emerald"}
+              sub="Platform-wide"
+            />
+            <StatCard
+              title="Avg Response"
+              value={summary.avg_response_time}
+              icon={TrendingUp}
+              color="cyan"
+              trend="↓ Latest scan"
+              sub="Analysis time"
+            />
+          </>
+        ) : (
+          <div className="col-span-4 text-center text-slate-500 py-6">
+            {errors.summary && <p className="text-red-400 text-sm">{errors.summary}</p>}
+          </div>
+        )}
       </div>
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Traffic timeline */}
         <Card className="lg:col-span-2" glow>
-          <SectionTitle sub="Activity distribution by scan type">Traffic Timeline</SectionTitle>
-          <TrafficChart scans={recentScans} />
+          <div className="flex items-center justify-between mb-4">
+            <SectionTitle sub="Activity distribution over time">Traffic Timeline</SectionTitle>
+            {loading.timeline && <Loader size={13} className="text-purple-400 animate-spin" />}
+          </div>
+          {errors.timeline ? (
+            <p className="text-red-400 text-xs p-4">{errors.timeline}</p>
+          ) : (
+            <TimelineChart data={timeline} />
+          )}
         </Card>
 
         {/* Threat distribution */}
         <Card>
-          <SectionTitle sub={`From ${recentScans.length} recent scans`}>Threat Distribution</SectionTitle>
-          <BarChart data={threatDist} />
+          <div className="flex items-center justify-between mb-4">
+            <SectionTitle sub={`From ${threats ? Object.values(threats).reduce((a, b) => a + b, 0) : 0} detections`}>
+              Threat Distribution
+            </SectionTitle>
+            {loading.threats && <Loader size={13} className="text-purple-400 animate-spin" />}
+          </div>
+          {errors.threats ? (
+            <p className="text-red-400 text-xs p-4">{errors.threats}</p>
+          ) : (
+            <ThreatChart data={threats} />
+          )}
         </Card>
       </div>
 
@@ -319,56 +261,62 @@ export function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Recent activity */}
         <Card className="lg:col-span-2">
-          <SectionTitle sub={`Last ${recentScans.length} events across all analyzers`}>Recent Activity</SectionTitle>
+          <div className="flex items-center justify-between mb-4">
+            <SectionTitle sub={`Last ${activities.length} events across all analyzers`}>Recent Activity</SectionTitle>
+            {loading.activities && <Loader size={13} className="text-purple-400 animate-spin" />}
+          </div>
+
           <div className="space-y-2">
-            {recentScans.length > 0 ? (
-              recentScans.slice(0, 6).map((item, i) => {
-                const Icon = getScanIcon(item.type);
-                const riskLevel = getRiskLevel(item.result);
-                return (
-                  <div
-                    key={i}
-                    className="flex items-center gap-3 p-3 rounded-lg bg-slate-900/40 hover:bg-slate-800/40 transition-colors group cursor-pointer"
-                  >
-                    <div className="w-7 h-7 rounded-lg bg-purple-900/30 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
-                      <Icon size={13} className="text-purple-400" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-slate-200 truncate">
-                        {item.type.charAt(0).toUpperCase() + item.type.slice(1)} {item.result === "clean" ? "scanned" : "analyzed"}
-                      </p>
-                      <p className="text-[10px] text-slate-500 truncate">{item.result}</p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <RiskBadge level={riskLevel} />
-                      <div className="flex items-center gap-1 text-[10px] text-slate-600">
-                        <Clock size={9} />
-                        {formatRelativeTime(item.timestamp)}
-                      </div>
-                    </div>
-                    <ChevronRight size={13} className="text-slate-700 group-hover:text-slate-400 transition-colors" />
+            {errors.activities ? (
+              <p className="text-red-400 text-xs p-4">{errors.activities}</p>
+            ) : activities.length > 0 ? (
+              activities.slice(0, 6).map((activity, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-3 p-3 rounded-lg bg-slate-900/40 hover:bg-slate-800/40 transition-colors group cursor-pointer"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-purple-900/30 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
+                    {activity.type === "pcap" && <Wifi size={13} className="text-purple-400" />}
+                    {activity.type === "file" && <FileText size={13} className="text-purple-400" />}
+                    {activity.type === "url" && <Globe size={13} className="text-purple-400" />}
+                    {activity.type === "email" && <Mail size={13} className="text-purple-400" />}
                   </div>
-                );
-              })
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-slate-200 truncate capitalize">{activity.type} {activity.status}</p>
+                    <p className="text-[10px] text-slate-500 truncate">{activity.message}</p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <div
+                      className="w-2 h-2 rounded-full"
+                      style={{ background: activity.status === "clean" ? "#22c55e" : activity.status === "suspicious" ? "#eab308" : "#ef4444" }}
+                    />
+                    <div className="flex items-center gap-1 text-[10px] text-slate-600">
+                      <Clock size={9} />
+                      {formatRelativeTime(activity.timestamp)}
+                    </div>
+                  </div>
+                  <ChevronRight size={13} className="text-slate-700 group-hover:text-slate-400 transition-colors" />
+                </div>
+              ))
             ) : (
-              <div className="text-center py-6 text-slate-500 text-sm">
-                No recent activity. Run a scan to get started.
-              </div>
+              <div className="text-center py-6 text-slate-500 text-sm">No recent activity. Run a scan to get started.</div>
             )}
           </div>
         </Card>
 
-        {/* Quick actions + risk gauge */}
+        {/* Quick actions + system health */}
         <div className="space-y-4">
           <Card>
             <SectionTitle>Quick Scan</SectionTitle>
             <div className="grid grid-cols-2 gap-2">
-              {([
-                ["PCAP", Wifi, "pcap"],
-                ["File", FileText, "fileScanner"],
-                ["URL", Globe, "urlAnalyzer"],
-                ["Email", Mail, "emailAnalyzer"],
-              ] as [string, React.ElementType, Page][]).map(([label, Icon, page]) => (
+              {(
+                [
+                  ["PCAP", Wifi, "pcap" as Page],
+                  ["File", FileText, "fileScanner" as Page],
+                  ["URL", Globe, "urlAnalyzer" as Page],
+                  ["Email", Mail, "emailAnalyzer" as Page],
+                ] as [string, React.ElementType, Page][]
+              ).map(([label, Icon, page]) => (
                 <button
                   key={label}
                   onClick={() => setPage(page)}
@@ -382,35 +330,68 @@ export function Dashboard() {
           </Card>
 
           <Card>
-            <SectionTitle>Platform Health</SectionTitle>
-            <div className="space-y-3">
-              {[
-                { label: "PCAP Engine", v: 98, c: "emerald" as const },
-                { label: "VirusTotal API", v: 91, c: "purple" as const },
-                { label: "URL Scanner", v: 85, c: "cyan" as const },
-                { label: "Email Parser", v: 100, c: "emerald" as const },
-              ].map(({ label, v, c }) => (
-                <ProgressBar key={label} label={label} value={v} color={c} showLabel />
-              ))}
+            <div className="flex items-center justify-between mb-3">
+              <SectionTitle>System Health</SectionTitle>
+              {loading.health && <Loader size={13} className="text-emerald-400 animate-spin" />}
             </div>
+            {errors.health ? (
+              <p className="text-red-400 text-xs">{errors.health}</p>
+            ) : health ? (
+              <div className="space-y-3">
+                {Object.entries(health).map(([key, _]) => {
+                  const status = health[key as keyof typeof health];
+                  const isHealthy = typeof status === "object" ? status.status === "healthy" : status > 90;
+                  return (
+                    <ProgressBar
+                      key={key}
+                      label={key.replace(/_/g, " ").toUpperCase()}
+                      value={typeof status === "object" ? status.uptime : status}
+                      color={isHealthy ? "emerald" : "amber"}
+                      showLabel
+                    />
+                  );
+                })}
+              </div>
+            ) : (
+              <SkeletonChart />
+            )}
           </Card>
         </div>
       </div>
 
-      {/* Alert feed */}
+      {/* Alert Feed */}
       <Card>
-        <SectionTitle sub={alerts.length > 0 ? "Latest security findings" : "System status"}>Alert Feed</SectionTitle>
+        <div className="flex items-center justify-between mb-4">
+          <SectionTitle sub={alerts.length > 0 ? "Active security findings" : "System status"}>Alert Feed</SectionTitle>
+          {loading.alerts && <Loader size={13} className="text-red-400 animate-spin" />}
+          {criticalAlerts > 0 && <span className="text-xs text-red-400 font-bold">{criticalAlerts} CRITICAL</span>}
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          {alerts.map((alert, i) => (
-            <AlertItem
-              key={i}
-              severity={alert.severity}
-              title={alert.title}
-              sub={alert.sub}
-            />
-          ))}
+          {errors.alerts ? (
+            <p className="text-red-400 text-xs">{errors.alerts}</p>
+          ) : alerts.length > 0 ? (
+            alerts.slice(0, 6).map((alert, i) => (
+              <AlertItem
+                key={i}
+                severity={alert.severity || "medium"}
+                title={alert.title}
+                sub={formatRelativeTime(alert.timestamp)}
+              />
+            ))
+          ) : (
+            <div className="col-span-2 flex items-center gap-2 p-4 rounded-lg bg-emerald-900/20 border border-emerald-800/30">
+              <CheckCircle size={13} className="text-emerald-400" />
+              <span className="text-xs text-emerald-300">No active alerts</span>
+            </div>
+          )}
         </div>
       </Card>
+
+      {/* Current Time (for reference) */}
+      <div className="text-center text-xs text-slate-600">
+        Server time: {clock.toLocaleTimeString()} UTC
+      </div>
     </div>
   );
 }
