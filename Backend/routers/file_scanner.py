@@ -4,6 +4,7 @@ import asyncio
 import os
 from dotenv import load_dotenv
 from pathlib import Path
+from app_state import stats as global_stats
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
@@ -75,11 +76,11 @@ async def scan_file(file: UploadFile = File(...)):
 
     # Step 3 — Parse results
     attributes = result_data["data"]["attributes"]
-    stats = attributes["stats"]
+    vt_stats = attributes["stats"]
     results = attributes["results"]
 
-    detected = stats.get("malicious", 0) + stats.get("suspicious", 0)
-    total = sum(stats.values())
+    detected = vt_stats.get("malicious", 0) + vt_stats.get("suspicious", 0)
+    total = sum(vt_stats.values())
 
     # Build per-engine results
     engines = []
@@ -104,6 +105,10 @@ async def scan_file(file: UploadFile = File(...)):
         risk_level = "dangerous"
 
     sha256 = attributes.get("sha256", "Unknown")
+
+    # Track in stats
+    threat_count = 1 if risk_level != "clean" else 0
+    global_stats.record_scan("file", risk_level, threat_count)
 
     return {
         "fileName": file.filename,

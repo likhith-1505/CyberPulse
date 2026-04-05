@@ -5,6 +5,7 @@ from collections import defaultdict
 import tempfile
 import os
 import time
+from app_state import stats as global_stats
 
 router = APIRouter()
 
@@ -242,6 +243,22 @@ async def analyze_pcap(file: UploadFile = File(...)):
     severity_order = {"high": 0, "medium": 1, "low": 2}
     alerts.sort(key=lambda x: severity_order.get(x["severity"], 3))
 
+    # Determine risk level and threat count
+    high_alerts = len([a for a in alerts if a["severity"] == "high"])
+    medium_alerts = len([a for a in alerts if a["severity"] == "medium"])
+    
+    if high_alerts > 0:
+        risk_level = "dangerous"
+    elif medium_alerts > 0:
+        risk_level = "suspicious"
+    else:
+        risk_level = "safe"
+    
+    threat_count = high_alerts + medium_alerts
+
+    # Track in stats
+    global_stats.record_scan("pcap", risk_level, threat_count)
+
     return {
         "totalPackets":   total_packets,
         "duration":       duration_str,
@@ -250,8 +267,8 @@ async def analyze_pcap(file: UploadFile = File(...)):
         "trafficTimeline": build_timeline(packets),
         "topTalkers":     get_top_talkers(packets),
         "alertCount": {
-            "high":   len([a for a in alerts if a["severity"] == "high"]),
-            "medium": len([a for a in alerts if a["severity"] == "medium"]),
+            "high":   high_alerts,
+            "medium": medium_alerts,
             "low":    len([a for a in alerts if a["severity"] == "low"])
         }
     }

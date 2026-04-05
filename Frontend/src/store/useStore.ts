@@ -30,6 +30,7 @@ interface AppStore {
   setNotificationsEnabled: (v: boolean) => void;
   incrementScans: () => void;
   incrementThreats: () => void;
+  setStats: (totalScans: number, threatsDetected: number) => void;
 }
 
 export const useStore = create<AppStore>()(
@@ -54,6 +55,8 @@ export const useStore = create<AppStore>()(
       incrementScans: () => set((s) => ({ totalScans: s.totalScans + 1 })),
       incrementThreats: () =>
         set((s) => ({ threatsDetected: s.threatsDetected + 1 })),
+      setStats: (totalScans, threatsDetected) =>
+        set({ totalScans, threatsDetected }),
     }),
     { name: "cyberguard-store" }
   )

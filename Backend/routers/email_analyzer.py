@@ -4,6 +4,7 @@ import re
 import socket
 from email import message_from_string
 from email.header import decode_header
+from app_state import stats as global_stats
 
 router = APIRouter()
 
@@ -166,6 +167,10 @@ async def analyze_email(req: EmailRequest):
 
     # Calculate spoofing risk
     spoofing_risk = check_spoofing(from_addr, reply_to, auth, warnings)
+
+    # Track in stats (consider high spoofing risk as a threat)
+    threat_count = 1 if spoofing_risk == "high" or len(warnings) > 2 else 0
+    global_stats.record_scan("email", spoofing_risk, threat_count)
 
     return {
         "senderIp":     sender_ip,

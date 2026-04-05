@@ -45,24 +45,42 @@ export interface EmailAnalysisResult {
   warnings: string[];
 }
 
+export interface DashboardStats {
+  total_scans: number;
+  threats_detected: number;
+}
+
+export interface RecentScan {
+  type: string;
+  timestamp: string;
+  result: string;
+  threat_count: number;
+}
+
 export const api = {
-  async analyzePcap(_file: File): Promise<PcapResult> {
-    await delay(2500);
-    return {
-      totalPackets: 14823,
-      duration: "4m 32s",
-      protocols: { TCP: 8420, UDP: 4100, ICMP: 1200, HTTP: 780, DNS: 323 },
-      alerts: [
-        { severity: "high", message: "Port scan detected from 192.168.1.105", src: "192.168.1.105", dst: "10.0.0.1" },
-        { severity: "high", message: "SYN flood attempt detected", src: "203.0.113.42", dst: "10.0.0.5" },
-        { severity: "medium", message: "Unusual DNS query volume", src: "192.168.1.20", dst: "8.8.8.8" },
-        { severity: "low", message: "Unencrypted HTTP credentials transmitted", src: "192.168.1.55", dst: "104.21.0.1" },
-      ],
-      trafficTimeline: Array.from({ length: 12 }, (_, i) => ({
-        time: `${i * 22}s`,
-        bytes: Math.floor(Math.random() * 9000 + 1000),
-      })),
-    };
+  async getDashboardStats(): Promise<DashboardStats> {
+    const res = await fetch("http://localhost:8000/stats");
+    if (!res.ok) throw new Error("Failed to fetch dashboard stats");
+    return res.json();
+  },
+
+  async getRecentActivity(): Promise<RecentScan[]> {
+    const res = await fetch("http://localhost:8000/recent-activity");
+    if (!res.ok) throw new Error("Failed to fetch recent activity");
+    return res.json();
+  },
+
+  async analyzePcap(file: File): Promise<PcapResult> {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const res = await fetch("http://localhost:8000/pcap/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!res.ok) throw new Error("PCAP analysis failed");
+    return res.json();
   },
 
   async scanFile(file: File): Promise<FileScanResult> {

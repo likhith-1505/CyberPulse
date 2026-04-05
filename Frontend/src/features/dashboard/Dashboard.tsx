@@ -1,9 +1,11 @@
+import { useEffect, useState } from "react";
 import {
   Shield, AlertTriangle, Activity, TrendingUp,
   Clock, Eye, Wifi, FileText, Globe, Mail, ChevronRight,
 } from "lucide-react";
 import { useStore } from "../../store/useStore";
 import { Card, StatCard, SectionTitle, RiskBadge, ProgressBar, AlertItem } from "../../components/ui";
+import { api, type RecentScan } from "../../services/api";
 import type { Page } from "../../store/useStore";
 
 // ─── Simple SVG mini-chart ────────────────────────────────────────────────────
@@ -49,15 +51,27 @@ function BarChart({ data }: { data: { label: string; value: number; color: strin
 }
 
 // ─── Traffic timeline ─────────────────────────────────────────────────────────
-const trafficData = Array.from({ length: 24 }, (_, i) => ({
-  hour: `${String(i).padStart(2, "0")}:00`,
-  packets: Math.floor(Math.random() * 4000 + 500),
-  threats: Math.floor(Math.random() * 40),
-}));
+function TrafficChart({ scans }: { scans: RecentScan[] }) {
+  // Group scans by type and calculate distribution
+  const scansByType: Record<string, number> = {};
+  const threatsByType: Record<string, number> = {};
+  
+  scans.forEach(scan => {
+    const type = scan.type.toLowerCase();
+    scansByType[type] = (scansByType[type] || 0) + 1;
+    threatsByType[type] = (threatsByType[type] || 0) + scan.threat_count;
+  });
 
-function TrafficChart() {
-  const maxP = Math.max(...trafficData.map((d) => d.packets));
-  const maxT = Math.max(...trafficData.map((d) => d.threats));
+  // Create synthetic timeline data from scan data
+  const types = Object.keys(scansByType).length > 0 ? Object.keys(scansByType) : ["pcap", "url", "file", "email"];
+  const trafficData = Array.from({ length: 12 }, (_, i) => ({
+    time: `${i * 2}h`,
+    packets: Math.floor((scansByType[types[i % types.length]] || 0) * (Math.random() * 2 + 1) * 1000),
+    threats: Math.floor((threatsByType[types[i % types.length]] || 0) * (Math.random() * 2 + 1) * 5),
+  }));
+
+  const maxP = Math.max(...trafficData.map((d) => d.packets), 1);
+  const maxT = Math.max(...trafficData.map((d) => d.threats), 1);
   const w = 100;
   const h = 80;
 
@@ -98,29 +112,144 @@ function TrafficChart() {
   );
 }
 
-// ─── Recent activity ──────────────────────────────────────────────────────────
-const recentActivity = [
-  { icon: Wifi, label: "PCAP analyzed", sub: "14,823 packets · 4 alerts", time: "2m ago", risk: "dangerous" },
-  { icon: FileText, label: "File scan complete", sub: "invoice_q4.exe · 3/70 engines", time: "8m ago", risk: "suspicious" },
-  { icon: Globe, label: "URL analyzed", sub: "phish-bank-login.xyz", time: "15m ago", risk: "dangerous" },
-  { icon: Mail, label: "Email headers parsed", sub: "SPF fail · DKIM fail", time: "22m ago", risk: "dangerous" },
-  { icon: FileText, label: "File scan complete", sub: "report.pdf · 0/70 engines", time: "41m ago", risk: "safe" },
-  { icon: Globe, label: "URL analyzed", sub: "github.com/anthropics/claude", time: "1h ago", risk: "safe" },
-];
 
 // ─── Threat distribution ──────────────────────────────────────────────────────
-const threatDist = [
-  { label: "Malware", value: 34, color: "#f87171" },
-  { label: "Phishing", value: 28, color: "#fb923c" },
-  { label: "Port Scan", value: 11, color: "#facc15" },
-  { label: "DDoS", value: 6,  color: "#a855f7" },
-  { label: "Exploit", value: 4,  color: "#60a5fa" },
-];
+function calculateThreatDistribution(scans: RecentScan[]): { label: string; value: number; color: string }[] {
+  const distribution: Record<string, number> = {
+    "Malware": 0,
+    "Phishing": 0,
+    "Suspicious": 0,
+    "Security": 0,
+    "Other": 0,
+  };
+
+  scans.forEach(scan => {
+    const type = scan.type.toLowerCase();
+    if (type === "url" && scan.result.toLowerCase().includes("phish")) {
+      distribution["Phishing"] += scan.threat_count;
+    } else if (type === "file" && scan.threat_count > 0) {
+      distribution["Malware"] += scan.threat_count;
+    } else if (type === "email" && scan.threat_count > 0) {
+      distribution["Phishing"] += scan.threat_count;
+    } else if (type === "pcap" && scan.threat_count > 0) {
+      distribution["Security"] += scan.threat_count;
+    } else if (scan.threat_count > 0) {
+      distribution["Suspicious"] += scan.threat_count;
+    }
+  });
+
+  const colors = ["#f87171", "#fb923c", "#facc15", "#a855f7", "#60a5fa"];
+  return Object.entries(distribution)
+    .map(([label, value], i) => ({
+      label,
+      value: Math.max(value, 1), // Ensure at least 1 for display
+      color: colors[i % colors.length],
+    }))
+    .filter((_, i) => i < 5);
+}
+
+// ─── Alert generation ───────────────────────────────────────────────────────────
+function generateAlerts(scans: RecentScan[]): Array<{ severity: "high" | "medium" | "low"; title: string; sub: string }> {
+  const alerts: Array<{ severity: "high" | "medium" | "low"; title: string; sub: string }> = [];
+
+  scans.slice(0, 6).forEach(scan => {
+    const time = formatRelativeTime(scan.timestamp);
+    const type = scan.type.charAt(0).toUpperCase() + scan.type.slice(1);
+
+    if (scan.result.toLowerCase() === "dangerous" || scan.threat_count > 2) {
+      alerts.push({
+        severity: "high",
+        title: `${type} analysis - HIGH RISK detected`,
+        sub: `${scan.result} · ${time}`,
+      });
+    } else if (scan.result.toLowerCase() === "suspicious" || scan.threat_count === 1) {
+      alerts.push({
+        severity: "medium",
+        title: `${type} scan - Suspicious activity`,
+        sub: `${scan.result} · ${time}`,
+      });
+    } else {
+      alerts.push({
+        severity: "low",
+        title: `${type} analysis completed`,
+        sub: `${scan.result} · ${time}`,
+      });
+    }
+  });
+
+  // If no scans, return placeholder alerts
+  if (alerts.length === 0) {
+    return [
+      {
+        severity: "low",
+        title: "System ready for analysis",
+        sub: "No recent security events · Run a scan to get started",
+      },
+    ];
+  }
+
+  return alerts.slice(0, 6);
+}
+function formatRelativeTime(timestamp: string): string {
+  const now = new Date();
+  const scanTime = new Date(timestamp);
+  const diffMs = now.getTime() - scanTime.getTime();
+  const diffSecs = Math.floor(diffMs / 1000);
+  
+  if (diffSecs < 60) return "just now";
+  if (diffSecs < 3600) return `${Math.floor(diffSecs / 60)}m ago`;
+  if (diffSecs < 86400) return `${Math.floor(diffSecs / 3600)}h ago`;
+  return `${Math.floor(diffSecs / 86400)}d ago`;
+}
+
+function getScanIcon(type: string) {
+  switch (type.toLowerCase()) {
+    case "pcap": return Wifi;
+    case "file": return FileText;
+    case "url": return Globe;
+    case "email": return Mail;
+    default: return FileText;
+  }
+}
+
+function getRiskLevel(result: string): "safe" | "suspicious" | "dangerous" {
+  const lower = result.toLowerCase();
+  if (lower === "clean" || lower === "safe") return "safe";
+  if (lower === "suspicious") return "suspicious";
+  return "dangerous";
+}
 
 export function Dashboard() {
-  const { totalScans, threatsDetected, setPage } = useStore();
-  const riskScore = Math.round((threatsDetected / totalScans) * 100);
-  const sparkData = Array.from({ length: 10 }, () => Math.random() * 100);
+  const { totalScans, threatsDetected, setPage, setStats } = useStore();
+  const [recentScans, setRecentScans] = useState<RecentScan[]>([]);
+  const riskScore = totalScans > 0 ? Math.round((threatsDetected / totalScans) * 100) : 0;
+
+  // Fetch dashboard stats and recent activity from backend
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [stats, activity] = await Promise.all([
+          api.getDashboardStats(),
+          api.getRecentActivity(),
+        ]);
+        setStats(stats.total_scans, stats.threats_detected);
+        setRecentScans(activity);
+      } catch (error) {
+        console.error("Failed to fetch dashboard data:", error);
+      }
+    };
+
+    // Fetch immediately and then every 5 seconds
+    fetchData();
+    const interval = setInterval(fetchData, 5000);
+
+    return () => clearInterval(interval);
+  }, [setStats]);
+
+  // Calculate dynamic data from scans
+  const threatDist = calculateThreatDistribution(recentScans);
+  const alerts = generateAlerts(recentScans);
+  const lastUpdateTime = recentScans.length > 0 ? formatRelativeTime(recentScans[0].timestamp) : "never";
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -128,7 +257,7 @@ export function Dashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-100 tracking-wide">Security Overview</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Real-time threat intelligence · Last updated just now</p>
+          <p className="text-xs text-slate-500 mt-0.5">Real-time threat intelligence · Last updated {lastUpdateTime}</p>
         </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-900/20 border border-emerald-800/30">
           <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse shadow-[0_0_4px_rgba(52,211,153,0.8)]" />
@@ -175,13 +304,13 @@ export function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Traffic timeline */}
         <Card className="lg:col-span-2" glow>
-          <SectionTitle sub="24-hour packet + threat activity">Traffic Timeline</SectionTitle>
-          <TrafficChart />
+          <SectionTitle sub="Activity distribution by scan type">Traffic Timeline</SectionTitle>
+          <TrafficChart scans={recentScans} />
         </Card>
 
         {/* Threat distribution */}
         <Card>
-          <SectionTitle sub="By category this month">Threat Distribution</SectionTitle>
+          <SectionTitle sub={`From ${recentScans.length} recent scans`}>Threat Distribution</SectionTitle>
           <BarChart data={threatDist} />
         </Card>
       </div>
@@ -190,33 +319,42 @@ export function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Recent activity */}
         <Card className="lg:col-span-2">
-          <SectionTitle sub="Last 6 events across all analyzers">Recent Activity</SectionTitle>
+          <SectionTitle sub={`Last ${recentScans.length} events across all analyzers`}>Recent Activity</SectionTitle>
           <div className="space-y-2">
-            {recentActivity.map((item, i) => {
-              const Icon = item.icon;
-              return (
-                <div
-                  key={i}
-                  className="flex items-center gap-3 p-3 rounded-lg bg-slate-900/40 hover:bg-slate-800/40 transition-colors group cursor-pointer"
-                >
-                  <div className="w-7 h-7 rounded-lg bg-purple-900/30 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
-                    <Icon size={13} className="text-purple-400" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-slate-200 truncate">{item.label}</p>
-                    <p className="text-[10px] text-slate-500 truncate">{item.sub}</p>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <RiskBadge level={item.risk} />
-                    <div className="flex items-center gap-1 text-[10px] text-slate-600">
-                      <Clock size={9} />
-                      {item.time}
+            {recentScans.length > 0 ? (
+              recentScans.slice(0, 6).map((item, i) => {
+                const Icon = getScanIcon(item.type);
+                const riskLevel = getRiskLevel(item.result);
+                return (
+                  <div
+                    key={i}
+                    className="flex items-center gap-3 p-3 rounded-lg bg-slate-900/40 hover:bg-slate-800/40 transition-colors group cursor-pointer"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-purple-900/30 border border-purple-800/40 flex items-center justify-center flex-shrink-0">
+                      <Icon size={13} className="text-purple-400" />
                     </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-slate-200 truncate">
+                        {item.type.charAt(0).toUpperCase() + item.type.slice(1)} {item.result === "clean" ? "scanned" : "analyzed"}
+                      </p>
+                      <p className="text-[10px] text-slate-500 truncate">{item.result}</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <RiskBadge level={riskLevel} />
+                      <div className="flex items-center gap-1 text-[10px] text-slate-600">
+                        <Clock size={9} />
+                        {formatRelativeTime(item.timestamp)}
+                      </div>
+                    </div>
+                    <ChevronRight size={13} className="text-slate-700 group-hover:text-slate-400 transition-colors" />
                   </div>
-                  <ChevronRight size={13} className="text-slate-700 group-hover:text-slate-400 transition-colors" />
-                </div>
-              );
-            })}
+                );
+              })
+            ) : (
+              <div className="text-center py-6 text-slate-500 text-sm">
+                No recent activity. Run a scan to get started.
+              </div>
+            )}
           </div>
         </Card>
 
@@ -261,14 +399,16 @@ export function Dashboard() {
 
       {/* Alert feed */}
       <Card>
-        <SectionTitle sub="Latest automated alerts">Alert Feed</SectionTitle>
+        <SectionTitle sub={alerts.length > 0 ? "Latest security findings" : "System status"}>Alert Feed</SectionTitle>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          <AlertItem severity="high" title="SYN Flood detected from 203.0.113.42" sub="TCP · Port 443 · 2 min ago" />
-          <AlertItem severity="high" title="Credential harvesting page identified" sub="URL: phish-bank-login.xyz · 15 min ago" />
-          <AlertItem severity="medium" title="Suspicious DNS query volume" sub="192.168.1.20 → 8.8.8.8 · 8 min ago" />
-          <AlertItem severity="medium" title="Email SPF + DKIM validation failed" sub="From: noreply@suspicious-domain.xyz" />
-          <AlertItem severity="low" title="Unencrypted HTTP credentials transmitted" sub="192.168.1.55 → 104.21.0.1" />
-          <AlertItem severity="low" title="Port scan pattern detected" sub="192.168.1.105 sweeping /24 range" />
+          {alerts.map((alert, i) => (
+            <AlertItem
+              key={i}
+              severity={alert.severity}
+              title={alert.title}
+              sub={alert.sub}
+            />
+          ))}
         </div>
       </Card>
     </div>

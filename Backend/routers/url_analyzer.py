@@ -4,6 +4,7 @@ import socket
 import whois
 import re
 from datetime import datetime, timezone
+from app_state import stats
 
 router = APIRouter()
 
@@ -152,6 +153,10 @@ async def analyze_url(req: UrlRequest):
     else:
         risk_level = "safe"
         categories = ["Safe", "Verified"]
+
+    # Track in stats
+    threat_count = 1 if risk_level != "safe" else 0
+    stats.record_scan("url", risk_level, threat_count)
 
     return {
         "url": url,
