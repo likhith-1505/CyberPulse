@@ -89,29 +89,12 @@ export const api = {
 },
 
   async analyzeEmail(headers: string): Promise<EmailAnalysisResult> {
-    await delay(1800);
-    const hasFail = headers.toLowerCase().includes("fail");
-    return {
-      senderIp: "198.51.100.42",
-      fromAddress: "noreply@suspicious-domain.xyz",
-      replyTo: "harvester@evil.cc",
-      subject: "Urgent: Verify your account",
-      spf: hasFail ? "fail" : "pass",
-      dkim: hasFail ? "fail" : "pass",
-      dmarc: hasFail ? "fail" : "pass",
-      spoofingRisk: hasFail ? "high" : "low",
-      hops: [
-        { from: "mail.suspicious-domain.xyz [198.51.100.42]", by: "mx1.victim.com", time: "Mon, 1 Apr 2025 09:12:03" },
-        { from: "mx1.victim.com", by: "mail.victim.com", time: "Mon, 1 Apr 2025 09:12:05" },
-      ],
-      warnings: hasFail
-        ? [
-            "SPF record does not authorize sending IP",
-            "DKIM signature validation failed",
-            "Reply-To domain differs from From domain",
-            "Sender IP has history of spam",
-          ]
-        : ["Reply-To domain differs from From domain"],
-    };
-  },
+  const res = await fetch("http://localhost:8000/email/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ headers }),
+  });
+  if (!res.ok) throw new Error("Analysis failed");
+  return res.json();
+},
 };
