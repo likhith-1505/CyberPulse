@@ -58,7 +58,7 @@ def calculate_risk(domain: str, domain_age_days: int, indicators: list) -> int:
 
     return min(score, 100)
 
-@app.post("/url/analyze")
+@router.post("/analyze")
 async def analyze_url(req: UrlRequest):
     url = clean_url(req.url)
     domain = extract_domain(url)
