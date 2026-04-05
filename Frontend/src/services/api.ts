@@ -89,30 +89,14 @@ export const api = {
   },
 
   async analyzeUrl(url: string): Promise<UrlScanResult> {
-    await delay(2000);
-    const risky = url.includes("phish") || url.includes("malware") || url.includes("hack");
-    return {
-      url,
-      riskLevel: risky ? "dangerous" : "safe",
-      riskScore: risky ? 87 : 12,
-      domain: new URL(url.startsWith("http") ? url : `https://${url}`).hostname,
-      ip: "104.21.45.23",
-      country: "United States",
-      registrar: "Cloudflare, Inc.",
-      createdAt: "2022-03-15",
-      indicators: risky
-        ? [
-            { type: "Phishing Kit", value: "Detected credential harvester", severity: "critical" },
-            { type: "Domain Age", value: "Registered 2 days ago", severity: "warning" },
-            { type: "SSL Certificate", value: "Self-signed certificate", severity: "warning" },
-          ]
-        : [
-            { type: "SSL", value: "Valid certificate (Let's Encrypt)", severity: "info" },
-            { type: "Domain Age", value: "Registered 3 years ago", severity: "info" },
-          ],
-      categories: risky ? ["Phishing", "Malware"] : ["Technology", "Safe"],
-    };
-  },
+  const res = await fetch("http://localhost:8000/url/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  if (!res.ok) throw new Error("Scan failed");
+  return res.json();
+},
 
   async analyzeEmail(headers: string): Promise<EmailAnalysisResult> {
     await delay(1800);
