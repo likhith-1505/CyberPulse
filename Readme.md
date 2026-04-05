@@ -1,4 +1,3 @@
-bashcat > README.md << 'EOF'
 # CyberPulse
 
 A security analysis platform I built to scan URLs, files, emails, and network captures. Think of it as a mini SOC tool you can run locally.
@@ -132,15 +131,5 @@ Only VirusTotal is needed right now. Others will be added as features get built 
 - IP reputation lookup
 - Local AI assistant using Ollama + RAG for MITRE ATT&CK mapping
 
-EOF
 
-.env.example
-bashcat > Backend/.env.example << 'EOF'
-# Copy this file to .env and fill in your keys
-# Never commit .env to git
 
-VIRUSTOTAL_API_KEY=your_key_here
-
-# Coming soon
-ABUSEIPDB_API_KEY=your_key_here
-EOF
