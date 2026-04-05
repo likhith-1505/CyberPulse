@@ -3,25 +3,29 @@ import httpx
 import asyncio
 import os
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
 router = APIRouter()
 
-VT_API_KEY = os.getenv("VIRUSTOTAL_API_KEY")
 VT_BASE_URL = "https://www.virustotal.com/api/v3"
-
-HEADERS = {
-    "x-apikey": VT_API_KEY
-}
 
 @router.post("/scan")
 async def scan_file(file: UploadFile = File(...)):
+    
+    # Load key fresh inside function — guarantees it's loaded
+    VT_API_KEY = os.getenv("VIRUSTOTAL_API_KEY")
+    
+    print(f"[DEBUG] Key loaded: {VT_API_KEY[:8] if VT_API_KEY else 'NOT FOUND'}")
+
     if not VT_API_KEY:
         raise HTTPException(
             status_code=500,
             detail="VirusTotal API key not configured"
         )
+
+    HEADERS = {"x-apikey": VT_API_KEY}
 
     # Read file content
     content = await file.read()
@@ -48,7 +52,7 @@ async def scan_file(file: UploadFile = File(...)):
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="VirusTotal upload timed out")
 
-    # Step 2 — Poll for results (VirusTotal takes a few seconds)
+    # Step 2 — Poll for results
     async with httpx.AsyncClient(timeout=30) as client:
         for attempt in range(10):
             await asyncio.sleep(3)
@@ -88,10 +92,10 @@ async def scan_file(file: UploadFile = File(...)):
             "result": engine_data.get("result") if is_detected else None
         })
 
-    # Sort — detected engines first
+    # Sort — detected first
     engines.sort(key=lambda x: x["detected"], reverse=True)
 
-    # Determine risk level
+    # Risk level
     if detected == 0:
         risk_level = "clean"
     elif detected <= 3:
@@ -99,7 +103,6 @@ async def scan_file(file: UploadFile = File(...)):
     else:
         risk_level = "dangerous"
 
-    # Get file metadata from VirusTotal
     sha256 = attributes.get("sha256", "Unknown")
 
     return {
@@ -110,7 +113,7 @@ async def scan_file(file: UploadFile = File(...)):
             "detected": detected,
             "total": total
         },
-        "engines": engines[:20],  # top 20 engines
+        "engines": engines[:20],
         "firstSeen": "Unknown",
         "riskLevel": risk_level
     }
